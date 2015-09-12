@@ -3,6 +3,7 @@ import os
 from sys import version_info
 from collections import defaultdict
 from time import sleep
+from copy import deepcopy
 import curses
 
 
@@ -25,6 +26,8 @@ quadrants:
 pixel_map = ((0x01, 0x02),
              (0x04, 0x08))
 
+full_block = 0x0F
+
 block_map = {0x01: 0x2598,
              0x02: 0x259D,
              0x03: 0x2580,
@@ -40,6 +43,7 @@ block_map = {0x01: 0x2598,
              0x0D: 0x2599,
              0x0E: 0x259F,
              0x0F: 0x2588}
+
 
 COLOR_BLACK     = curses.COLOR_BLACK
 COLOR_RED       = curses.COLOR_RED
@@ -122,14 +126,47 @@ class Canvas(object):
 
     def __init__(self, line_ending=os.linesep):
         super(Canvas, self).__init__()
-        self.clear()
         self.line_ending = line_ending
+        self.static_chars = defaultdict(intdefaultdict)
+        self.static_colors = defaultdict(intdefaultdict)
+        self.clear()
+
+    def set_static(self, frame):
+        for x,y,c in frame:
+            self.set(x,y)
+            self.set_color(x,y,c)
+        self.static_chars = deepcopy(self.chars)
+        self.static_colors = deepcopy(self.colors)
+
+    def draw(self,stdscr):
+        pass
 
 
     def clear(self):
         """Remove all pixels from the :class:`Canvas` object."""
-        self.chars = defaultdict(intdefaultdict)
-        self.colors = defaultdict(intdefaultdict)
+        self.chars = deepcopy(self.static_chars)
+        self.colors = deepcopy(self.static_colors)
+
+    def reset(self, x,y):
+        x = normalize(x)
+        y = normalize(y)
+        col,row = get_pos(x,y)
+
+        if type(self.chars[row][col]) != int:
+            return
+
+        self.chars[row][col] = self.static_chars[row][col]
+
+    def reset_color(self,x,y):
+
+        x = normalize(x)
+        y = normalize(y)
+        col, row = get_pos(x, y)
+
+        if type(self.chars[row][col]) != int:
+            return
+
+        self.colors[row][col] = self.static_colors[row][col]
 
 
     def set(self, x, y):
@@ -146,6 +183,7 @@ class Canvas(object):
             return
 
         self.chars[row][col] |= pixel_map[(y % 4) // 2][x % 2]
+
 
 
     def unset(self, x, y):
@@ -344,6 +382,7 @@ class Palette(object):
             pair_index = self.colors[color_index]
             if pair_index != 0:
                 curses.init_pair(pair_index, color_index, curses.COLOR_BLACK)
+            curses.init_pair(pair_index+10,color_index,color_index)
 
     def add_color(self,color_index):
         if color_index not in self.colors:
@@ -373,9 +412,44 @@ def animate(canvas, palette, fn, delay=1./24, *args, **kwargs):
         locale.setlocale(locale.LC_ALL, "")
 
     def animation(stdscr):
+        seen = defaultdict(bool)
+
+        #Draw static frame.
+        sf = canvas.frame()
+        stdscr.addstr(0,0,sf)
+
         for frame in fn(*args, **kwargs):
-            stdscr.erase()
+            #Reset abandoned pixels.
             for x,y,c in frame:
+                if seen[(x,y,c)]:
+                    seen.pop((x,y,c))
+
+            for x,y,c in seen:
+                canvas.reset(x,y)
+                canvas.reset_color(x,y)
+
+                col,row = get_pos(x,y)
+                color = canvas.colors[row][col]
+
+                color_pair = curses.color_pair(0)
+                if color in palette.colors:
+                    color_pair = curses.color_pair(palette.colors[color])
+
+                char = canvas.chars[row][col]
+                if char:
+                    stdscr.addstr(row, col, unichr(block_map[char]).encode('utf-8'), color_pair)
+                else:
+                    stdscr.addstr(row, col, " ", color_pair)
+
+
+            #Update dynamic frame.
+            seen.clear()
+            for x,y,c in frame:
+                seen[(x,y,c)] = True
+                # Bug when a static is present here.
+                if canvas.get(x,y):
+                    continue
+
                 canvas.set(x,y)
                 canvas.set_color(x,y,c)
 
@@ -386,14 +460,17 @@ def animate(canvas, palette, fn, delay=1./24, *args, **kwargs):
                 if color in palette.colors:
                     color_pair = curses.color_pair(palette.colors[color])
 
-                stdscr.addstr(row, col, unichr(block_map[canvas.chars[row][col]]).encode('utf-8'), color_pair)
+                char = canvas.chars[row][col]
+                stdscr.addstr(row, col, unichr(block_map[char]).encode('utf-8'), color_pair)
 
+            #Refresh window.
             stdscr.refresh()
+
+            #Wait for fps delay.
             if delay:
                 sleep(delay)
-            canvas.clear()
 
-    animation_wrapper(animation,palette)
+    animation_wrapper(animation, palette)
 
 
 def animation_wrapper(func, palette, *args, **kwds):

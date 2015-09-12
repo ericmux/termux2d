@@ -1,5 +1,5 @@
 # example:
-# $  PYTHONPATH=`pwd` python examples/image2term.py http://fc00.deviantart.net/fs71/f/2011/310/5/a/giant_nyan_cat_by_daieny-d4fc8u1.png -t 100 -r 0.01
+# $  PYTHONPATH=`pwd` python examples/image2term_cli.py http://fc00.deviantart.net/fs71/f/2011/310/5/a/giant_nyan_cat_by_daieny-d4fc8u1.png -t 100 -r 0.01
 import sys
 import os
 sys.path.append(os.path.abspath(".."))
